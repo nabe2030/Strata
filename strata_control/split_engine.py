@@ -31,6 +31,7 @@ engine refuses or fails to start (serve/server.py, "split_fallback").
 from __future__ import annotations
 
 import dataclasses
+import os
 import pathlib
 import re
 from typing import Any
@@ -237,7 +238,12 @@ def decide(*, enabled: bool, system: str, cards: list[Card], ram_total_gib: floa
         why.append("it only knows Qwen3.8-Flash-Next (48 layers, 512 experts)")
     need_vram = model.routed_bytes / GIB / max(n, 1) + CARD_OVERHEAD_GIB
     need_ram = model.embd_ram_bytes / GIB + RAM_PINNED_BUFFERS_GIB + cache_mib / 1024
-    if cards and n >= 2 and min(c.vram_mib for c in cards) / 1024 < need_vram:
+    # Opt-in switch (default unchanged): STRATA_SPLIT_SKIP_VRAM_CHECK=1 lets cards that cannot hold every expert through; the engine then keeps
+    # a copy of all experts in pinned host memory and fills VRAM slots from it (FNX_ARENA / FNX_EXPERT_RAM_GIB, see split_config).
+    skip_vram = os.environ.get("STRATA_SPLIT_SKIP_VRAM_CHECK") == "1"
+    if skip_vram and cards and n >= 2 and min(c.vram_mib for c in cards) / 1024 < need_vram:
+        untested.append("experts larger than the cards' memory (host-memory expert cache)")
+    elif cards and n >= 2 and min(c.vram_mib for c in cards) / 1024 < need_vram:
         why.append(f"all the experts do not fit in the cards' memory (each card needs about {need_vram:.0f} GiB, has "
                    f"{min(c.vram_mib for c in cards) / 1024:.0f} GiB)")
     if ram_available_gib < need_ram + RAM_SPARE_GIB:
@@ -261,6 +267,10 @@ def split_config(base: dict, decision: Decision, *, exe: str, native: str, mtp_d
         cfg["args"].append("--vision")
     # every expert in the cards' memory, no expert cache, no arena: the engine reads these two at start
     cfg["env"] = {**(base.get("env") or {}), "FNX_ARENA": "0", "FNX_EXPERT_RAM_GIB": "off"}
+    # Opt-in switch (default unchanged): STRATA_SPLIT_FNX_ARENA / STRATA_SPLIT_FNX_EXPERT_RAM_GIB replace the two values above
+    for src, dst in (("STRATA_SPLIT_FNX_ARENA", "FNX_ARENA"), ("STRATA_SPLIT_FNX_EXPERT_RAM_GIB", "FNX_EXPERT_RAM_GIB")):
+        if os.environ.get(src):
+            cfg["env"][dst] = os.environ[src]
     cfg["split_fallback"] = {k: base[k] for k in ("exe", "args", "env", "layer_split", "replicas", "user_args", "drafting", "cwd") if k in base}
     # The split engine runs the model's own draft layer (the MTP) and nothing else. Saying so in the config ("drafting": "mtp") keeps serve/server.py's
     # drafter step, which resolves Auto to DFlash2 where the engine has it, from adding DFlash2 flags to the split engine's arguments (it would refuse them
