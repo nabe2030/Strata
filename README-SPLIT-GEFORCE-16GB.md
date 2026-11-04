@@ -68,6 +68,7 @@ Environment for the engine:
 FNX_ARENA=1
 FNX_EXPERT_RAM_GIB=20
 FNX_POOL_MIN_RESIDENT=384      # 2*MAXT*TOPK = 320, plus a margin
+FNX_PF_STAGE_ROWS=8            # optional, see "Results on the same box" (default 2048)
 ```
 
 Engine arguments: `--spec 6 --lookup 15 --batch 1 --max-context 8192 --conversation-cache-mib 1024`
@@ -114,7 +115,56 @@ Caveats:
   no `--batch` above 1, and a single model/quant were tried.
 - `FNX_POOL_MIN_RESIDENT=384` is a value that worked here, not a tuned one.
 
+## Results on the same box
+
+Same machine as above, nothing else running (no `rsync`), 200 ShareGPT requests sent one at a time (`vllm bench serve`,
+seed 0, concurrency 1, thinking off, server default sampling), context 8192, MTP drafter. The same 200 prompts were used
+for every run (47,455 input tokens in total). Timings are recomputed from the engine's own per-request log lines, because
+the client-side TTFT is not meaningful for this server. **One run per configuration**, so treat differences of a few
+percent as noise.
+
+![Same-box comparison](docs/split-geforce-16gb-same-box.png)
+
+| | S (this branch) | S2 (this branch + `FNX_PF_STAGE_ROWS=8`) | L2 (layer split, 2 cards) | L1 (1 card) |
+|---|---|---|---|---|
+| Generated tokens / wall time | 23.3 tok/s | 35.7 | **40.6** | 32.3 |
+| Decode, median per request | 57.5 tok/s | **58.2** | 48.7 | 36.3 |
+| Prompt read, median | 4.98 s | 2.49 | 1.05 | **1.01** |
+| Prompt read, p99 | 11.9 s | 3.2 | 2.3 | **2.0** |
+| Wall time for 200 requests | 1875 s | 1248 s | **1106 s** | 1374 s |
+| Failed requests | 0 | 0 | 0 | 0 |
+
+- **S / S2**: the split engine built from this branch (`strata-split-2-sm89`) with `FNX_ARENA=1 FNX_EXPERT_RAM_GIB=20
+  FNX_POOL_MIN_RESIDENT=384`, `--spec 6 --lookup 15 --batch 1`. S2 only adds `FNX_PF_STAGE_ROWS=8`.
+- **L2 / L1**: the stock release engine `strata` 0.1.56 (Linux, CUDA 13) from the v0.2.10 release, MTP drafter
+  (`--spec 6`), the same GGUF, with `--layer-split auto` on two cards (L2) or on one card only (L1). `--lookup` does not
+  exist in that engine, so it was not used there.
+- Not shown in the table: the draft acceptance counts are not comparable between the two engines (different logging).
+
+**Reading the numbers.** The split engine decodes fastest (S2 is 1.2x the layer split and 1.6x one card), but on short
+prompts it loses on total throughput, because every prompt has to move the non-resident experts over PCIe. A prompt is
+read in two passes (the first N-6 rows, then the last 6). Below `FNX_PF_STAGE_ROWS` (default 2048) a pass reads the
+RAM-resident experts in place; above it they are staged with `cudaMemcpy`, about 1.6 s per pass here. With 71 % of the
+experts in RAM the in-place path costs 2.4 s (41 rows) to 5.7 s (772 rows), and the 6-row tail pass costs 1.4 s when
+staged but 0.3 s in place. `FNX_PF_STAGE_ROWS=8` uses the staged path for the head and the in-place path for the tail:
+
+| Prompt read time | default (2048) | `FNX_PF_STAGE_ROWS=8` |
+|---|---|---|
+| about 50 tokens | 3.0 s | 2.0 s |
+| about 200 tokens | 3.9 s | 2.1 s |
+| about 780 tokens | 6.0 s | 2.4 s |
+| about 3.4K tokens | about 4.4 s | 4.3 s |
+
+`FNX_PF_STAGE_MIB=768` only helped long prompts (3.4K tokens: 4.3 to 3.7 s) and was not used. `FNX_PF_STAGE_ROWS=0`
+(always stage) did not help short prompts. The default of 2048 seems to assume all experts are resident in VRAM; this
+is discussed in the upstream issue.
+
+Caveats: one machine, one model/quant, one run each; short ShareGPT prompts (about 240 tokens on average) with
+about 220 generated tokens, concurrency 1 only. The comparison between engine versions also mixes the 0.1.56 release
+build with a v0.2.10 source build of the split engine.
+
 ## Files
 
 - `strata_control/split_engine.py`: patch 1 (launcher switches)
 - `src/split/src/model.cpp`: patch 2 (pool floor)
+- `docs/split-geforce-16gb-same-box.png`: chart for "Results on the same box"
