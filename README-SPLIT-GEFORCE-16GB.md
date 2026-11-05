@@ -159,6 +159,18 @@ staged but 0.3 s in place. `FNX_PF_STAGE_ROWS=8` uses the staged path for the he
 (always stage) did not help short prompts. The default of 2048 seems to assume all experts are resident in VRAM; this
 is discussed in the upstream issue.
 
+**Agent workload (GembaBench).** The same box, both engines at `--max-context 262144` (one slot, MTP drafter, 4 GiB conversation cache), running the
+[GembaBench](https://github.com/nabe2030/gembabench) agent benchmark (18 runs: six tasks, three runs each, driven by OpenCode through the OpenAI-compatible
+server). The split engine is this branch with `FNX_ARENA=1 FNX_EXPERT_RAM_GIB=20 FNX_POOL_MIN_RESIDENT=384 FNX_PF_STAGE_ROWS=8`; the layer split is the stock 0.1.56 engine.
+
+| | split engine | layer split (2 cards) |
+|---|---|---|
+| Wall time for all 18 runs | **5.7 h** | 7.3 h |
+| Generation speed seen by the agent (median of 18 runs) | **43.6 tok/s** | 35.8 tok/s |
+| Task scores | same as the layer split | same |
+
+One run per configuration of each task set; one of the split-engine runs spent 33 minutes in a model-initiated `sleep`, which is included in the 5.7 h. Details and per-run data are in the benchmark repository.
+
 Caveats: one machine, one model/quant, one run each; short ShareGPT prompts (about 240 tokens on average) with
 about 220 generated tokens, concurrency 1 only. The comparison between engine versions also mixes the 0.1.56 release
 build with a v0.2.10 source build of the split engine.
