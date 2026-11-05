@@ -141,6 +141,17 @@ percent as noise.
   exist in that engine, so it was not used there.
 - Not shown in the table: the draft acceptance counts are not comparable between the two engines (different logging).
 
+**MTP draft acceptance, from the same engine logs** (summed over the 200 requests; the split engine logs `drafts A of B`, the layer-split engine `drafts accepted A of B`):
+
+| | S | S2 | L2 | L1 | S2 (1024 tokens) | L2 (1024 tokens) |
+|---|---|---|---|---|---|---|
+| Drafts accepted / proposed | 25,872 / 49,104 | 26,693 / 50,301 | 28,659 / 81,398 | 28,101 / 81,835 | 90,921 / 168,848 | 94,780 / 253,326 |
+| Acceptance rate (A / B) | 52.7 % | 53.1 % | 35.2 % | 34.3 % | 53.8 % | 37.4 % |
+| Drafts proposed per generated token | 1.12 | 1.13 | 1.82 | 1.85 | 1.15 | 1.75 |
+| Drafts accepted per generated token | 0.59 | 0.60 | 0.64 | 0.63 | 0.62 | 0.65 |
+
+The acceptance rates are not comparable between the two engines: B is counted differently (the split engine proposes fewer drafts per round, the layer split engine appears to propose a fixed K=6 per round), which is why its rate looks lower. Per generated token the two accept about the same number of drafts (0.60 vs 0.64 for S2 vs L2), so the split engine's faster decode in these runs does not come from the drafter accepting more; it verifies fewer drafts per token. This is derived from the existing log lines, not from a separate measurement.
+
 **Reading the numbers.** The split engine decodes fastest (S2 is 1.2x the layer split and 1.6x one card), but on short
 prompts it loses on total throughput, because every prompt has to move the non-resident experts over PCIe. A prompt is
 read in two passes (the first N-6 rows, then the last 6). Below `FNX_PF_STAGE_ROWS` (default 2048) a pass reads the
