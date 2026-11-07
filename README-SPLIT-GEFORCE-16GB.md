@@ -1,5 +1,7 @@
 # Running the all-cards split engine on 2x GeForce 16 GB (host-memory expert cache)
 
+> **Update (2026-11-07):** the per-pool residency floor (patch 0002 here, `FNX_POOL_MIN_RESIDENT`) was taken into upstream as #5158 and ships in v0.2.12. The upstream PR (#5258) is closed. See also https://github.com/nabe2030/strata-split-geforce-16gb
+
 This branch (`split-geforce-16gb`, based on `v0.2.10` / `ffa80d7`) carries two small, opt-in patches that let the
 all-cards split engine start and answer on two 16 GB GeForce cards, where the routed experts do **not** fit in VRAM.
 With none of the new environment variables set, behaviour is exactly as upstream. The license (MIT) and the original
