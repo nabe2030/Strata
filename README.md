@@ -1,3 +1,5 @@
+> **Update (2026-11-07):** the per-pool residency floor from this branch was taken into upstream as #5158 and ships in v0.2.12 (this PR, #5258, is closed). The branch is kept as a record.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="apps/host/public/brand/strata-lockup-dark.svg">
